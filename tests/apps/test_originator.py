@@ -51,7 +51,8 @@ def get_orig(request, fsip):
 def test_dtmf_passthrough(get_orig):
     '''Test the dtmf app in coordination with the originator
     '''
-    orig = get_orig('doggy', offer=1, apps=(dtmf.DtmfChecker,))
+    orig = get_orig('doggy', offer=1)
+    orig.load_app(dtmf.DtmfChecker)
     orig.duration = 0
     orig.start()
     checker = orig.pool.clients[0].apps.DtmfChecker['DtmfChecker']
@@ -72,13 +73,13 @@ def test_convo_sim(get_orig):
     def count(recinfo):
         recs.append(recinfo)
 
-    orig = get_orig(
-        'doggy',
-        apps=[
-            (players.PlayRec,
-             {'rec_stereo': True,
-              'callback': count})
-        ]
+    orig = get_orig('doggy')
+    orig.load_app(
+        players.PlayRec,
+        ppkwargs={
+            'rec_stereo': True,
+            'callback': count,
+        }
     )
     # manual app reference retrieval
     playrec = orig.pool.nodes[0].client.apps.PlayRec['PlayRec']
@@ -101,4 +102,4 @@ def test_convo_sim(get_orig):
         time.sleep(1)
 
     # ensure number of calls recorded matches the rec period
-    assert float(len(recs)) == math.floor((stop - start)/ playrec.rec_period)
+    assert float(len(recs)) == math.floor((stop - start) / playrec.rec_period)
