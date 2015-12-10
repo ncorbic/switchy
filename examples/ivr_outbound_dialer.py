@@ -8,6 +8,12 @@
 #a single call and play introductory IVR message. From then
 #on application will wait for user input via DTMF.
 #
+#IVR Menu
+# 911 - Play file contact system admin 
+# 811 - Play file hello
+# 111 - Cause a hangup
+# If user times out on DTMF a hello playback will be heard
+#
 #All user logic should be defined in IVRCallLogic Class.
 #
 #Variables
@@ -67,8 +73,7 @@ log.setLevel("INFO")
 # Specify FreeSWITCH or Sangoma NSG IP information
 # In this example the sample app is running on 
 # Sangoma NSG appliance hence the use of local address
-#host = "127.0.0.1"
-host = "10.10.26.33"
+host = "127.0.0.1"
 port = 8821
 
 
@@ -289,7 +294,7 @@ def create_url():
         #Make a FreeTDM SS7/PRI Call
         #Adding F at the end of the DID disables remote SS7 overlap dialing which can add 5 sec to the incoming call setup time
         #Note: Developer is suppose to supply their own DID. From a list or a DB
-        return {'dest_url': 'a/4113F', 'dest_profile': 'g1', 'dest_endpoint': 'freetdm'}
+        return {'dest_url': 'a/1000F', 'dest_profile': 'g1', 'dest_endpoint': 'freetdm'}
     else:
     
         #Make a SIP Call
@@ -308,9 +313,9 @@ def create_url():
 # In my example the Dialer will dial out 2 calls as par to first campaign.
 # By increasing the max_campaigns, dialer will repeat as many dial campings.
 
-max_calls_per_campaign=2
-max_call_attempts_per_sec=1
-max_campaigns=1
+max_calls_per_campaign = 1
+max_call_attempts_per_sec = 1
+max_campaigns = 1
 
 originator = get_originator([(host,port)], apps=(IVRCallLogic,), auto_duration=False, rep_fields_func=create_url)
 
@@ -345,7 +350,7 @@ campaign_cnt=0
 # After the campaign is over, check to see if another 
 # campaign should start
 while (True):
-    log.debug("Originator Stopped='{}' State='{}' Call Count='{}'\n". format(originator.stopped(), originator.state, originator.count_calls()))
+    log.info("Originator Stopped='{}' State='{}' Call Count='{}'\n". format(originator.stopped(), originator.state, originator.count_calls()))
     if originator.state == "STOPPED" and originator.count_calls() == 0:
        
         # Check to see if we should run another camapign
