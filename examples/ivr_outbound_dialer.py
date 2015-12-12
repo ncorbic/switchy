@@ -66,7 +66,7 @@ from switchy import get_originator
 
 # Enable logging to stderr
 # Debug levels: INFO in production, DEBUG in devel
-log = switchy.utils.log_to_stderr(INFO)
+log = switchy.utils.log_to_stderr("INFO")
 
 # Specify FreeSWITCH or Sangoma NSG IP information
 # In this example the sample app is running on
@@ -92,7 +92,7 @@ class IVRCallLogic(object):
         log.info("Setting recording dir to '{}" . format(self.recdir))
 
         # Get the install directory of NSG and append sounds to it
-        self.sound_dir = self.base_dir +  "/sounds"
+        self.sound_dir = self.base_dir + "/sounds"
         log.info("Setting sounds dir to '{}" . format(self.sound_dir))
 
         self.stereo = False
@@ -125,7 +125,7 @@ class IVRCallLogic(object):
         if sess.is_inbound():
             pass
 
-        # Outbound call hsa just been answered
+        # Outbound call has just been answered
         # Developer would start the introductory IVR message
         if sess.is_outbound():
 
@@ -141,11 +141,25 @@ class IVRCallLogic(object):
             # At this point we wait for PLAYBACK_STOP event to finish
             # We could trigger a timeout as in DTMF section
 
+    def dtmf_cancel_timeout(self, sess):
+        # If DTMF timeout is pending, reset the DTMF timeout
+        call = sess.call
+        if call.vars.get('dtmf_timeout_job'):
+            log.debug("'{}': Cancel dtmf timeout job" . format(sess.uuid))
+            call.vars.get('dtmf_timeout_job').cancel()
+            call.vars['dtmf_timeout_job'] = None
+
+    def dtmf_reset_timeout(self, sess, timeout):
+        call = sess.call
+        self.dtmf_cancel_timeout(sess)
+        call.vars['dtmf_timeout_job'] = threading.Timer(timeout, self.dtmf_timeout_action, [sess])
+        call.vars.get('dtmf_timeout_job').start()
+
     # Timer handler function that implements DTMF timeout
     def dtmf_timeout_action(self, sess):
         call = sess.call
 
-        log.info("'{}': DTMF timeout".  format(sess.uuid))
+        log.info("'{}': DTMF timeout" . format(sess.uuid))
 
         if call.vars.get('playing') is True:
             call.vars['playing'] = False
@@ -160,7 +174,7 @@ class IVRCallLogic(object):
         sess.playback(play_filename)
 
         # Trigger dtmf timeout again
-        call.vars['dtmf_timeout_job'] = threading.Timer(3, self.dtmf_timeout_action, [self, sess])
+        self.dtmf_reset_timeout(sess, 3)
 
     @event_callback('DTMF')
     def on_digit(self, sess):
@@ -171,24 +185,10 @@ class IVRCallLogic(object):
         if call.vars.get('playing') is True:
             sess.breakmedia()
 
-        # If DTMF timeout is pending, reset the DTMF timeout
-        if call.vars.get('dtmf_timeout_job'):
-            log.debug("'{}': Cancel dtmf timeout job" . format(sess.uuid))
-            call.vars.get('dtmf_timeout_job').cancel()
-            call.vars['dtmf_timeout_job'] = None
+        # Stop the dtmf timeout timer
+        self.dtmf_cancel_timeout(sess)
 
-        # Restart the DTMF timeout
-        call.vars['dtmf_timeout_job'] = threading.Timer(3, self.dtmf_timeout_action, [sess])
-        call.vars.get('dtmf_timeout_job').start()
-
-        # Example of how to check elapsed time
-        # elapsed=self.dtmf_timeout.elapsed()
-        # if elapsed >= self.dtmf_timeout_period:
-        #    log.info("'{}': Resetting DTMF queue: timeout" . format(sess.uuid))
-        #    call.vars['incoming_dtmf'] = None
-        #    self.dtmf_timeout.reset()
-
-        log.info("'{}': DTMF dtmf digit '{}'".  format(sess.uuid, digit))
+        log.info("'{}': DTMF dtmf digit '{}'" . format(sess.uuid, digit))
 
         # Add incoming digit into the digit queue
         if call.vars.get('incoming_dtmf') is None:
@@ -221,20 +221,29 @@ class IVRCallLogic(object):
         if call.vars.get('incoming_dtmf') is not None and len(call.vars['incoming_dtmf']) >= 3:
             log.debug("'{}': Resetting DTMF queue" . format(sess.uuid))
             call.vars['incoming_dtmf'] = None
-            # self.dtmf_timeout.reset()
+
+        if call.vars['playing'] is not True:
+            # User has not triggered the menu. Restart the DTMF timeout
+            self.dtmf_reset_timeout(sess, 3)
 
     @event_callback("PLAYBACK_START")
     def on_playback_start(self, sess):
         call = sess.call
-        log.info("'{}': got PLAYBACK_START ".  format(sess.uuid))
+        fp = sess['Playback-File-Path']
+        log.info("'{}': got PLAYBACK_START '{}'" . format(sess.uuid, fp))
         if call.vars.get('play_welcome') is True:
             log.info("'{}': Playing Welcome STARTED" . format(sess.uuid))
 
     @event_callback("PLAYBACK_STOP")
     def on_playback_stop(self, sess):
         call = sess.call
-        log.info("'{}': got PLAYBACK_STOP ".  format(sess.uuid))
+        fp = sess['Playback-File-Path']
+        log.info("'{}': got PLAYBACK_STOP '{}'" . format(sess.uuid, fp))
+
+        # Plaing is finished, set DTMF timeout
         call.vars['playing'] = False
+        self.dtmf_reset_timeout(sess, 3)
+
         if call.vars.get('play_welcome') is True:
             call.vars['play_welcome'] = False
             log.info("'{}': Playing Welcome STOPPED, Lets Wait for Digits" . format(sess.uuid))
@@ -242,17 +251,17 @@ class IVRCallLogic(object):
     @event_callback("RECORD_START")
     def on_record_start(self, sess):
         call = sess.call
-        log.info("'{}': got RECORD_START ".  format(sess.uuid))
+        log.info("'{}': got RECORD_START " . format(sess.uuid))
 
     @event_callback("RECORD_STOP")
     def on_record_stop(self, sess):
         call = sess.call
-        log.info("'{}': got RECORD_STOP ".  format(sess.uuid))
+        log.info("'{}': got RECORD_STOP " . format(sess.uuid))
 
     @event_callback('CHANNEL_HANGUP')
     def on_hangup(self, sess, job):
         call = sess.call
-        log.info("'{}': got HANGUP ". format(sess.uuid))
+        log.info("'{}': got HANGUP " . format(sess.uuid))
         if call.vars.get('play_welcome') is True:
             call.vars['play_welcome'] = False
             log.info("'{}': Got HANGUP while playing" . format(sess.uuid))
@@ -275,6 +284,7 @@ class IVRCallLogic(object):
 # In this example we are making a FreeTDM Call.
 # Change True to False in order to make SIP calls.
 def create_url():
+    # if statement is just an easy way to switch between on or the other
     if True:
         # Make a FreeTDM SS7/PRI Call
         # Adding F at the end of the DID disables remote SS7 overlap dialing which can add 5 sec to the incoming call setup time
@@ -283,8 +293,7 @@ def create_url():
     else:
 
         # Make a SIP Call
-        # Uncoming in order to use it.
-        return {'dest_url': '4113@10.10.12.5:6060', 'dest_profile': 'internal', 'dest_endpoint': 'sofia'}
+        return {'dest_url': '1000@10.10.12.5:6060', 'dest_profile': 'internal', 'dest_endpoint': 'sofia'}
 
 
 # Create an originator
@@ -295,8 +304,8 @@ def create_url():
 #    max_calls_per_campaign
 #    max_call_attempts_per_sec
 #    max_campaigns
-# In my example the Dialer will dial out 2 calls as par to first campaign.
-# By increasing the max_campaigns, dialer will repeat as many dial campings.
+# In my example the Dialer will dial out 1 call on first campaign.
+# By increasing the max_campaigns, dialer will repeat as many dial campaigns.
 
 max_calls_per_campaign = 1
 max_call_attempts_per_sec = 1
@@ -304,14 +313,14 @@ max_campaigns = 1
 
 originator = get_originator([(host, port)], apps=(IVRCallLogic,), auto_duration=False, rep_fields_func=create_url)
 
-# Use place holders in order for switch to trigger create_url() function above
-# TODO: Should be hidden in switchy
-#       Should iterate over all clients
-originator.pool.clients[0].set_orig_cmd(
-    dest_url='{dest_url}',
-    profile='{dest_profile}',
-    endpoint='{dest_endpoint}',
-    app_name='park',
+# Initialize dial variables in order for switchy to trigger create_url() function above
+# The create_url function has the task of specifying the dial information per call
+originator.pool.evals(
+    ("""client.set_orig_cmd(
+     dest_url='{dest_url}',
+     profile='{dest_profile}',
+     endpoint='{dest_endpoint}',
+     app_name='park')""")
 )
 
 
@@ -319,6 +328,7 @@ originator.pool.clients[0].set_orig_cmd(
 originator.rate = max_call_attempts_per_sec
 
 # Setup maximum number of calls to make
+# max erlangs / simultaneous calls
 originator.limit = max_calls_per_campaign
 
 # Maximum number of calls to dial out
@@ -336,9 +346,9 @@ campaign_cnt = 0
 # campaign should start
 while (True):
 
-    log.info("Originator Stopped='{}' State='{}' Call Count='{}'\n" .  format(originator.stopped(), originator.state, originator.count_calls()))
-
     if originator.state == "STOPPED" and originator.count_calls() == 0:
+
+        log.info(originator)
 
         # Check to see if we should run another camapign
         campaign_cnt += 1
